@@ -42,7 +42,7 @@ export default async function DashboardPage() {
       {/* Welcome Header */}
       <div className="animate-fadeUp">
         <h1 className="text-4xl font-bold text-text mb-2">
-          Welcome back, {userName}! 👋
+          Welcome back, {userName}!
         </h1>
         <p className="text-subtle text-lg">
           Here's what's happening with your scheduling
@@ -248,7 +248,7 @@ export default async function DashboardPage() {
               </p>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                 <code className="bg-white px-4 py-2 rounded-lg border border-border text-sm text-text font-mono break-all">
-                  {process.env.NEXT_PUBLIC_APP_URL || 'https://yoursite.com'}/{userSlug}
+                  {process.env.NEXT_PUBLIC_APP_URL || 'https://calendly-scheduling.vercel.app'}/{userSlug}
                 </code>
                 <CopyLinkButton userSlug={userSlug} />
               </div>

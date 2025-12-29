@@ -19,27 +19,21 @@ export async function GET(req: Request) {
       select: { id: true },
     });
 
-    if (!user) {
-      return NextResponse.json([]);
-    }
+    if (!user) return NextResponse.json([]);
 
     const event = await prisma.eventType.findFirst({
-      where: {
-        slug,
-        userId: user.id,
-      },
+      where: { slug, userId: user.id },
     });
 
-    if (!event) {
-      return NextResponse.json([]);
-    }
+    if (!event) return NextResponse.json([]);
 
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      return NextResponse.json([]);
-    }
+    // ✅ TIMEZONE-SAFE DATE
+    const startOfDay = new Date(`${dateStr}T00:00:00Z`);
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
 
-    const day = date.getDay();
+    // ✅ USE UTC DAY
+    const day = startOfDay.getUTCDay();
 
     const availability = await prisma.availability.findFirst({
       where: {
@@ -48,14 +42,15 @@ export async function GET(req: Request) {
       },
     });
 
-    if (!availability) {
-      return NextResponse.json([]);
-    }
+    if (!availability) return NextResponse.json([]);
 
     const bookings = await prisma.booking.findMany({
       where: {
         userId: user.id,
-        date,
+        date: {
+          gte: startOfDay,
+          lt: endOfDay,
+        },
       },
       select: {
         startTime: true,

@@ -55,6 +55,7 @@ export default async function EventsPage() {
           <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
           New Event Type
         </Link>
+
       </div>
 
       {/* Empty State */}
