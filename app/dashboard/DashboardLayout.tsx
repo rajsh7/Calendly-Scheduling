@@ -53,7 +53,7 @@ export default function DashboardLayout({
           </div>
           <div>
             <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
-              Calendly Clone
+              Calendly
             </h1>
             <p className="text-xs text-gray-400">Manage your schedule</p>
           </div>
