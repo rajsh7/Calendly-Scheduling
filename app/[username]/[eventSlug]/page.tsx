@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, User, ArrowLeft, CheckCircle, Globe } from "lucide-react";

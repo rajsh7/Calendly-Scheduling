@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       guestEmail,
     } = body;
 
-    // 🔒 basic validation
+    // 🔒 VALIDATION
     if (
       !username ||
       !slug ||
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ find user (case-insensitive)
+    // ✅ FIND USER BY USERNAME (CASE-INSENSITIVE)
     const user = await prisma.user.findFirst({
       where: {
         username: {
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ find event
+    // ✅ FIND EVENT
     const event = await prisma.eventType.findFirst({
       where: {
         slug,
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 
     const bookingDate = new Date(date);
 
-    // 🔥 OPTION 3 — CHECK DUPLICATE BOOKING
+    // 🔥 DUPLICATE BOOKING CHECK
     const existingBooking = await prisma.booking.findFirst({
       where: {
         userId: user.id,
@@ -77,11 +77,11 @@ export async function POST(req: Request) {
     if (existingBooking) {
       return NextResponse.json(
         { error: "This booking already exists" },
-        { status: 409 } // Conflict
+        { status: 409 }
       );
     }
 
-    // ✅ create booking
+    // ✅ CREATE BOOKING
     const booking = await prisma.booking.create({
       data: {
         date: bookingDate,
@@ -95,8 +95,8 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(booking, { status: 201 });
-  } catch (err) {
-    console.error("Booking API error:", err);
+  } catch (error) {
+    console.error("Booking API error:", error);
     return NextResponse.json(
       { error: "Server error" },
       { status: 500 }
