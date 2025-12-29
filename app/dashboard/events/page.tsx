@@ -10,15 +10,25 @@ export default async function EventsPage() {
   if (!session?.user?.email) redirect("/login");
 
   const events = await prisma.eventType.findMany({
-    where: {
-      user: {
-        email: session.user.email,
+  where: {
+    user: {
+      email: session.user.email,
+    },
+  },
+      select: {
+        id: true,
+        title: true,
+        description: true, // ✅ ADD THIS
+        duration: true,
+        slug: true,
+        userId: true,
+        createdAt: true,
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
 
   const userSlug = session.user.email.split('@')[0];
 
