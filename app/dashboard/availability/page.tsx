@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, Calendar, CheckCircle, AlertCircle, Copy, Zap, Sun, Moon } from "lucide-react";
+import { Clock, Calendar, CheckCircle, AlertCircle, Copy, Zap, Sun, Moon, Plus, Trash2, Coffee } from "lucide-react";
 
 const DAYS = [
   { name: "Sunday", short: "Sun", icon: "☀️" },
@@ -13,14 +13,20 @@ const DAYS = [
   { name: "Saturday", short: "Sat", icon: "🎉" },
 ];
 
-type Slot = {
-  day: number;
+type TimeSlot = {
+  id: string;
   startTime: string;
   endTime: string;
 };
 
+type DayAvailability = {
+  day: number;
+  enabled: boolean;
+  slots: TimeSlot[];
+};
+
 export default function AvailabilityPage() {
-  const [slots, setSlots] = useState<Slot[]>([]);
+  const [availability, setAvailability] = useState<DayAvailability[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -31,68 +37,240 @@ export default function AvailabilityPage() {
     fetch("/api/availability")
       .then((res) => res.json())
       .then((data) => {
-        setSlots(data);
+        // Convert old format to new format
+        const daysMap = new Map<number, TimeSlot[]>();
+        
+        data.forEach((slot: any) => {
+          if (!daysMap.has(slot.day)) {
+            daysMap.set(slot.day, []);
+          }
+          daysMap.get(slot.day)!.push({
+            id: slot.id || crypto.randomUUID(),
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+          });
+        });
+
+        const newAvailability = DAYS.map((_, index) => ({
+          day: index,
+          enabled: daysMap.has(index),
+          slots: daysMap.get(index) || [],
+        }));
+
+        setAvailability(newAvailability);
         setLoading(false);
       })
       .catch(() => {
-        setError("Failed to load availability");
+        // Initialize empty if fetch fails
+        setAvailability(
+          DAYS.map((_, index) => ({
+            day: index,
+            enabled: false,
+            slots: [],
+          }))
+        );
         setLoading(false);
       });
   }, []);
 
-  function updateSlot(day: number, field: "startTime" | "endTime", value: string) {
-    setSlots((prev) => {
-      const existing = prev.find((s) => s.day === day);
-      if (existing) {
-        return prev.map((s) =>
-          s.day === day ? { ...s, [field]: value } : s
-        );
-      }
-      return [...prev, { day, startTime: "09:00", endTime: "17:00" }];
-    });
-    setSaved(false);
-  }
-
-  function toggleDay(day: number) {
-    setSlots((prev) =>
-      prev.some((s) => s.day === day)
-        ? prev.filter((s) => s.day !== day)
-        : [...prev, { day, startTime: "09:00", endTime: "17:00" }]
+  const toggleDay = (dayIndex: number) => {
+    setAvailability((prev) =>
+      prev.map((day) => {
+        if (day.day === dayIndex) {
+          if (day.enabled) {
+            // Disabling - clear slots
+            return { ...day, enabled: false, slots: [] };
+          } else {
+            // Enabling - add default slot
+            return {
+              ...day,
+              enabled: true,
+              slots: [{ id: crypto.randomUUID(), startTime: "09:00", endTime: "17:00" }],
+            };
+          }
+        }
+        return day;
+      })
     );
     setSaved(false);
-  }
+  };
 
-  function applyToAll() {
-    if (slots.length === 0) return;
-    const template = slots[0];
-    const allDays = DAYS.map((_, index) => ({
-      day: index,
-      startTime: template.startTime,
-      endTime: template.endTime,
-    }));
-    setSlots(allDays);
+  const addSlot = (dayIndex: number) => {
+    setAvailability((prev) =>
+      prev.map((day) => {
+        if (day.day === dayIndex && day.enabled) {
+          const lastSlot = day.slots[day.slots.length - 1];
+          const newStartTime = lastSlot ? lastSlot.endTime : "09:00";
+          
+          return {
+            ...day,
+            slots: [
+              ...day.slots,
+              { id: crypto.randomUUID(), startTime: newStartTime, endTime: "17:00" },
+            ],
+          };
+        }
+        return day;
+      })
+    );
     setSaved(false);
-  }
+  };
 
-  function setWeekdays() {
-    const weekdaySlots = [1, 2, 3, 4, 5].map(day => ({
-      day,
-      startTime: "09:00",
-      endTime: "17:00",
-    }));
-    setSlots(weekdaySlots);
+  const removeSlot = (dayIndex: number, slotId: string) => {
+    setAvailability((prev) =>
+      prev.map((day) => {
+        if (day.day === dayIndex) {
+          const newSlots = day.slots.filter((s) => s.id !== slotId);
+          return {
+            ...day,
+            slots: newSlots,
+            enabled: newSlots.length > 0,
+          };
+        }
+        return day;
+      })
+    );
     setSaved(false);
-  }
+  };
+
+  const updateSlot = (
+    dayIndex: number,
+    slotId: string,
+    field: "startTime" | "endTime",
+    value: string
+  ) => {
+    setAvailability((prev) =>
+      prev.map((day) => {
+        if (day.day === dayIndex) {
+          return {
+            ...day,
+            slots: day.slots.map((slot) =>
+              slot.id === slotId ? { ...slot, [field]: value } : slot
+            ),
+          };
+        }
+        return day;
+      })
+    );
+    setSaved(false);
+  };
+
+  const validateAvailability = (): string | null => {
+    for (const day of availability) {
+      if (!day.enabled) continue;
+
+      // Check if slots exist
+      if (day.slots.length === 0) {
+        return `${DAYS[day.day].name} is enabled but has no time slots`;
+      }
+
+      for (let i = 0; i < day.slots.length; i++) {
+        const slot = day.slots[i];
+        const startMins = timeToMinutes(slot.startTime);
+        const endMins = timeToMinutes(slot.endTime);
+
+        // Check if end time is after start time
+        if (endMins <= startMins) {
+          return `${DAYS[day.day].name}: End time must be after start time in slot ${i + 1}`;
+        }
+
+        // Check minimum slot duration (15 minutes)
+        if (endMins - startMins < 15) {
+          return `${DAYS[day.day].name}: Slot ${i + 1} must be at least 15 minutes long`;
+        }
+
+        // Check for overlapping slots
+        for (let j = i + 1; j < day.slots.length; j++) {
+          const nextSlot = day.slots[j];
+          const nextStartMins = timeToMinutes(nextSlot.startTime);
+          const nextEndMins = timeToMinutes(nextSlot.endTime);
+
+          if (
+            (startMins < nextEndMins && endMins > nextStartMins) ||
+            (nextStartMins < endMins && nextEndMins > startMins)
+          ) {
+            return `${DAYS[day.day].name}: Slots ${i + 1} and ${j + 1} overlap`;
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const timeToMinutes = (time: string): number => {
+    const [hours, mins] = time.split(":").map(Number);
+    return hours * 60 + mins;
+  };
+
+  const applyToAll = () => {
+    const firstEnabledDay = availability.find((d) => d.enabled);
+    if (!firstEnabledDay || firstEnabledDay.slots.length === 0) {
+      setError("Enable and configure at least one day first");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    setAvailability((prev) =>
+      prev.map((day) => ({
+        ...day,
+        enabled: true,
+        slots: firstEnabledDay.slots.map((s) => ({
+          ...s,
+          id: crypto.randomUUID(),
+        })),
+      }))
+    );
+    setSaved(false);
+  };
+
+  const setWeekdays = () => {
+    setAvailability((prev) =>
+      prev.map((day) => {
+        if (day.day >= 1 && day.day <= 5) {
+          return {
+            ...day,
+            enabled: true,
+            slots: [
+              { id: crypto.randomUUID(), startTime: "09:00", endTime: "12:00" },
+              { id: crypto.randomUUID(), startTime: "13:00", endTime: "17:00" },
+            ],
+          };
+        }
+        return { ...day, enabled: false, slots: [] };
+      })
+    );
+    setSaved(false);
+  };
 
   async function saveAvailability() {
     setSaving(true);
     setError("");
-    
+
+    // Validate before saving
+    const validationError = validateAvailability();
+    if (validationError) {
+      setError(validationError);
+      setSaving(false);
+      return;
+    }
+
+    // Convert to API format
+    const slotsToSave = availability
+      .filter((day) => day.enabled && day.slots.length > 0)
+      .flatMap((day) =>
+        day.slots.map((slot) => ({
+          day: day.day,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        }))
+      );
+
     try {
       const res = await fetch("/api/availability", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(slots),
+        body: JSON.stringify(slotsToSave),
       });
 
       if (!res.ok) {
@@ -108,11 +286,17 @@ export default function AvailabilityPage() {
     }
   }
 
-  const activeDaysCount = slots.length;
-  const totalHours = slots.reduce((total, slot) => {
-    const start = parseInt(slot.startTime.split(':')[0]);
-    const end = parseInt(slot.endTime.split(':')[0]);
-    return total + (end - start);
+  const activeDaysCount = availability.filter((d) => d.enabled).length;
+  const totalSlots = availability.reduce((sum, day) => sum + day.slots.length, 0);
+  const totalHours = availability.reduce((sum, day) => {
+    return (
+      sum +
+      day.slots.reduce((slotSum, slot) => {
+        const start = timeToMinutes(slot.startTime);
+        const end = timeToMinutes(slot.endTime);
+        return slotSum + (end - start) / 60;
+      }, 0)
+    );
   }, 0);
 
   if (loading) {
@@ -127,11 +311,9 @@ export default function AvailabilityPage() {
     <div className="space-y-8 max-w-4xl mx-auto">
       {/* Header */}
       <div className="animate-fadeUp">
-        <h1 className="text-4xl font-bold text-text mb-2">
-          Availability
-        </h1>
+        <h1 className="text-4xl font-bold text-text mb-2">Availability</h1>
         <p className="text-subtle text-lg">
-          Set your weekly schedule and available hours
+          Set your weekly schedule with flexible time slots and breaks
         </p>
       </div>
 
@@ -152,7 +334,7 @@ export default function AvailabilityPage() {
       )}
 
       {/* Stats & Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeUp" style={{ animationDelay: '50ms' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeUp" style={{ animationDelay: "50ms" }}>
         {/* Stats */}
         <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
@@ -165,8 +347,12 @@ export default function AvailabilityPage() {
               <span className="font-bold text-xl text-text">{activeDaysCount}/7</span>
             </div>
             <div className="flex justify-between items-center">
+              <span className="text-subtle text-sm">Total time slots</span>
+              <span className="font-bold text-xl text-text">{totalSlots}</span>
+            </div>
+            <div className="flex justify-between items-center">
               <span className="text-subtle text-sm">Weekly hours</span>
-              <span className="font-bold text-xl text-text">{totalHours}h</span>
+              <span className="font-bold text-xl text-text">{totalHours.toFixed(1)}h</span>
             </div>
           </div>
         </div>
@@ -184,12 +370,12 @@ export default function AvailabilityPage() {
                        hover:bg-muted hover:border-brand/30 transition-all duration-300
                        hover:-translate-y-0.5 text-sm font-medium"
             >
-              <Copy className="w-4 h-4" />
-              Set weekdays (9-5)
+              <Coffee className="w-4 h-4" />
+              Weekdays 9-5 (with lunch break)
             </button>
             <button
               onClick={applyToAll}
-              disabled={slots.length === 0}
+              disabled={activeDaysCount === 0}
               className="w-full flex items-center gap-2 px-4 py-2.5 border border-border rounded-lg
                        hover:bg-muted hover:border-brand/30 transition-all duration-300
                        hover:-translate-y-0.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -204,34 +390,33 @@ export default function AvailabilityPage() {
       {/* Days List */}
       <div className="space-y-3">
         {DAYS.map((day, dayIndex) => {
-          const active = slots.find((s) => s.day === dayIndex);
+          const dayData = availability.find((d) => d.day === dayIndex);
+          if (!dayData) return null;
 
           return (
             <div
               key={dayIndex}
               className={`bg-white border-2 rounded-xl p-6 transition-all duration-300
                          hover:shadow-lift hover:-translate-y-1 animate-fadeUp group
-                         ${active ? 'border-brand/30 shadow-sm' : 'border-border'}`}
+                         ${dayData.enabled ? "border-brand/30 shadow-sm" : "border-border"}`}
               style={{ animationDelay: `${(dayIndex + 2) * 40}ms` }}
             >
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Day Info */}
                 <div className="flex items-center gap-4 flex-1">
                   <div className="text-3xl">{day.icon}</div>
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-lg text-text">
-                        {day.name}
-                      </h3>
-                      {active && (
+                      <h3 className="font-bold text-lg text-text">{day.name}</h3>
+                      {dayData.enabled && (
                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                          Active
+                          {dayData.slots.length} slot{dayData.slots.length !== 1 ? "s" : ""}
                         </span>
                       )}
                     </div>
-                    {active && (
+                    {dayData.enabled && dayData.slots.length > 0 && (
                       <p className="text-sm text-subtle">
-                        {active.startTime} - {active.endTime}
+                        {dayData.slots.map((s) => `${s.startTime}-${s.endTime}`).join(", ")}
                       </p>
                     )}
                   </div>
@@ -241,7 +426,7 @@ export default function AvailabilityPage() {
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={!!active}
+                    checked={dayData.enabled}
                     onChange={() => toggleDay(dayIndex)}
                     className="sr-only peer"
                   />
@@ -253,44 +438,62 @@ export default function AvailabilityPage() {
                 </label>
               </div>
 
-              {/* Time Inputs */}
-              {active && (
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                    <div className="flex items-center gap-2 flex-1">
-                      <Sun className="w-4 h-4 text-subtle" />
-                      <label className="text-sm font-medium text-subtle min-w-[60px]">
-                        Start time
-                      </label>
-                      <input
-                        type="time"
-                        value={active.startTime}
-                        onChange={(e) =>
-                          updateSlot(dayIndex, "startTime", e.target.value)
-                        }
-                        className="flex-1 border border-border rounded-lg px-4 py-2.5 
-                                 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent
-                                 transition-all duration-300 hover:border-brand/30"
-                      />
-                    </div>
+              {/* Time Slots */}
+              {dayData.enabled && (
+                <div className="space-y-3 pt-4 border-t border-border">
+                  {dayData.slots.map((slot, slotIndex) => (
+                    <div
+                      key={slot.id}
+                      className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-gray-50 p-4 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
+                        <Sun className="w-4 h-4 text-subtle flex-shrink-0" />
+                        <input
+                          type="time"
+                          value={slot.startTime}
+                          onChange={(e) =>
+                            updateSlot(dayIndex, slot.id, "startTime", e.target.value)
+                          }
+                          className="flex-1 border border-border rounded-lg px-3 py-2
+                                   focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent
+                                   transition-all duration-300 hover:border-brand/30"
+                        />
+                      </div>
 
-                    <div className="flex items-center gap-2 flex-1">
-                      <Moon className="w-4 h-4 text-subtle" />
-                      <label className="text-sm font-medium text-subtle min-w-[60px]">
-                        End time
-                      </label>
-                      <input
-                        type="time"
-                        value={active.endTime}
-                        onChange={(e) =>
-                          updateSlot(dayIndex, "endTime", e.target.value)
-                        }
-                        className="flex-1 border border-border rounded-lg px-4 py-2.5
-                                 focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent
-                                 transition-all duration-300 hover:border-brand/30"
-                      />
+                      <span className="text-subtle text-sm sm:mx-2">to</span>
+
+                      <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
+                        <Moon className="w-4 h-4 text-subtle flex-shrink-0" />
+                        <input
+                          type="time"
+                          value={slot.endTime}
+                          onChange={(e) =>
+                            updateSlot(dayIndex, slot.id, "endTime", e.target.value)
+                          }
+                          className="flex-1 border border-border rounded-lg px-3 py-2
+                                   focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent
+                                   transition-all duration-300 hover:border-brand/30"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => removeSlot(dayIndex, slot.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                        title="Remove slot"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                  </div>
+                  ))}
+
+                  <button
+                    onClick={() => addSlot(dayIndex)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-brand/30 rounded-lg
+                             hover:bg-blue-50 hover:border-brand transition-all duration-300 text-brand font-medium"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add time slot (e.g., for split shifts or breaks)
+                  </button>
                 </div>
               )}
             </div>
@@ -299,11 +502,13 @@ export default function AvailabilityPage() {
       </div>
 
       {/* Save Button */}
-      <div className="flex gap-3 animate-fadeUp sticky bottom-6 bg-white/80 backdrop-blur-lg border border-border rounded-xl p-4 shadow-lift"
-           style={{ animationDelay: `${(DAYS.length + 2) * 40}ms` }}>
+      <div
+        className="flex gap-3 animate-fadeUp sticky bottom-6 bg-white/80 backdrop-blur-lg border border-border rounded-xl p-4 shadow-lift"
+        style={{ animationDelay: `${(DAYS.length + 2) * 40}ms` }}
+      >
         <button
           onClick={saveAvailability}
-          disabled={saving || slots.length === 0}
+          disabled={saving || activeDaysCount === 0}
           className="flex-1 bg-brand text-white px-6 py-3.5 rounded-lg font-medium
                      hover:bg-brand-dark transition-all duration-300
                      hover:-translate-y-0.5 hover:shadow-xl
@@ -328,9 +533,9 @@ export default function AvailabilityPage() {
           )}
         </button>
 
-        {slots.length > 0 && (
+        {activeDaysCount > 0 && (
           <button
-            onClick={() => setSlots([])}
+            onClick={() => setAvailability(DAYS.map((_, i) => ({ day: i, enabled: false, slots: [] })))}
             className="px-6 py-3.5 border-2 border-red-200 text-red-600 rounded-lg font-medium
                      hover:bg-red-50 transition-all duration-300 hover:-translate-y-0.5"
           >
@@ -340,28 +545,39 @@ export default function AvailabilityPage() {
       </div>
 
       {/* Help Text */}
-      <div className="bg-muted border border-border rounded-xl p-6 animate-fadeUp" 
-           style={{ animationDelay: `${(DAYS.length + 3) * 40}ms` }}>
+      <div
+        className="bg-muted border border-border rounded-xl p-6 animate-fadeUp"
+        style={{ animationDelay: `${(DAYS.length + 3) * 40}ms` }}
+      >
         <h3 className="font-semibold text-text mb-3 flex items-center gap-2">
           <Clock className="w-5 h-5 text-brand" />
-          Tips for setting availability
+          How to use flexible scheduling
         </h3>
         <ul className="space-y-2 text-sm text-subtle">
           <li className="flex items-start gap-2">
             <span className="text-brand mt-0.5">•</span>
-            <span>Toggle days on/off to control which days you're available for meetings</span>
+            <span>
+              <strong>Multiple time slots:</strong> Add separate slots for morning/afternoon or to block
+              lunch breaks
+            </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-brand mt-0.5">•</span>
-            <span>Set different hours for each day to match your schedule</span>
+            <span>
+              <strong>Example:</strong> 9:00-12:00, 13:00-17:00 (blocks 12-1pm for lunch)
+            </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-brand mt-0.5">•</span>
-            <span>Use quick actions to set up common schedules quickly</span>
+            <span>
+              <strong>Validation:</strong> Slots can't overlap and must be at least 15 minutes long
+            </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-brand mt-0.5">•</span>
-            <span>Remember to save your changes before leaving the page</span>
+            <span>
+              <strong>Quick setup:</strong> Use "Weekdays 9-5" to set Mon-Fri with automatic lunch break
+            </span>
           </li>
         </ul>
       </div>
